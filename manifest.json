@@ -1,0 +1,13 @@
+{
+  "name": "Mirage",
+  "short_name": "Mirage",
+  "description": "A private journal with a gentle second pass",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#F6F4EF",
+  "theme_color": "#4A4370",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

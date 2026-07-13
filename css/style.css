@@ -1,0 +1,252 @@
+/* Mirage — mobile-first, ports the artifact's palette and typography. */
+
+:root {
+  --ink: #2B2838;
+  --faint: #6E6880;
+  --paper: #F6F4EF;
+  --card: #FFFFFF;
+  --violet: #4A4370;
+  --amber: #B4702F;
+  --line: #E3DFD6;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: 'Spline Sans', system-ui, sans-serif;
+  -webkit-text-size-adjust: 100%;
+}
+
+.hidden { display: none !important; }
+
+/* ---- horizon ---- */
+#horizon {
+  height: 120px;
+  position: relative;
+  transition: height 300ms ease;
+  /* gradient set from JS by time of day */
+  background: linear-gradient(to bottom, #5C6B9E 0%, #A8B4CE 62%, #EFE3C8 100%);
+}
+#horizon.compact { height: 56px; }
+#horizon::after {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 1.5px;
+  background: rgba(255, 255, 255, 0.55);
+  filter: blur(0.5px);
+}
+
+/* ---- nav / layout ---- */
+#topnav {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 16px 20px 4px;
+  max-width: 640px;
+  margin: 0 auto;
+  width: 100%;
+}
+.wordmark {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-size: 26px;
+  letter-spacing: 0.01em;
+}
+#topnav nav .btn.quiet { color: var(--faint); }
+#topnav nav .btn.quiet.active { color: var(--ink); }
+
+main {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: 12px 20px 90px;
+}
+
+.view-title {
+  font-family: 'Instrument Serif', Georgia, serif;
+  font-weight: 400;
+  font-size: 28px;
+  margin: 8px 0 18px;
+}
+
+/* ---- text helpers ---- */
+.faint { color: var(--faint); font-size: 17px; }
+.small { font-size: 15px; margin: 4px 0 14px; }
+.serif { font-family: 'Newsreader', Georgia, serif; }
+.italic { font-style: italic; }
+.error { color: var(--amber); font-size: 15px; margin-top: 12px; }
+.centre { text-align: center; padding: 36px 20px; }
+
+.label {
+  font-size: 12.5px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--faint);
+  margin-bottom: 10px;
+}
+
+/* ---- buttons ---- */
+.btn {
+  font-family: 'Spline Sans', system-ui, sans-serif;
+  font-size: 16px;
+  font-weight: 500;
+  padding: 12px 22px;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  transition: opacity 150ms ease, background 150ms ease;
+  background: transparent;
+}
+.btn:disabled { opacity: 0.5; cursor: default; }
+.btn.primary { background: var(--violet); color: #FFFFFF; }
+.btn.ghost { color: var(--violet); border: 1px solid var(--line); }
+.btn.quiet { color: var(--faint); padding: 8px 12px; }
+.btn.danger { color: var(--amber); margin-top: 20px; }
+.btn.back { margin-left: -12px; }
+textarea:focus, input:focus, .btn:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
+
+.row { display: flex; gap: 10px; margin-top: 12px; }
+
+/* ---- cards ---- */
+.card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px 20px;
+  margin-bottom: 14px;
+}
+.card p { margin: 6px 0; font-size: 17px; line-height: 1.5; }
+.card.grounding { border-left: 3px solid var(--amber); }
+.card.grounding .quote {
+  font-family: 'Newsreader', Georgia, serif;
+  font-style: italic;
+  color: var(--faint);
+  margin: 4px 0 10px;
+}
+.card.clickable { cursor: pointer; }
+
+/* ---- write view ---- */
+#draft {
+  width: 100%;
+  min-height: 48vh;
+  font-size: 18.5px;
+  line-height: 1.65;
+  font-family: 'Newsreader', Georgia, serif;
+  border: none;
+  background: transparent;
+  color: var(--ink);
+  resize: vertical;
+  padding: 0;
+}
+#writeBar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  background: linear-gradient(to top, var(--paper) 65%, transparent);
+  padding: 26px 20px 22px;
+}
+#writeBar .bar-inner {
+  max-width: 640px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+/* ---- gate ---- */
+#gateInput {
+  width: 100%;
+  font-size: 17px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  margin: 14px 0;
+}
+
+/* ---- reflection ---- */
+.note-input, #lookupInput {
+  width: 100%;
+  margin-top: 12px;
+  font-size: 16px;
+  font-family: 'Newsreader', Georgia, serif;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: var(--paper);
+  color: var(--ink);
+  resize: vertical;
+}
+.vocab-word {
+  font-family: 'Newsreader', Georgia, serif;
+  font-style: italic;
+  font-size: 18px;
+}
+.vocab-count { font-size: 14px; color: var(--faint); margin-left: 8px; }
+.vocab-item { margin: 14px 0; }
+.vocab-item:first-of-type { margin-top: 2px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.chip {
+  font-family: 'Newsreader', Georgia, serif;
+  font-style: italic;
+  font-size: 18px;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 16px;
+}
+.chip.alt {
+  font-family: 'Spline Sans', system-ui, sans-serif;
+  font-style: normal;
+  font-size: 15.5px;
+  color: var(--violet);
+  background: var(--paper);
+  padding: 4px 13px;
+}
+
+/* ---- entry list / detail ---- */
+.entry-preview {
+  font-family: 'Newsreader', Georgia, serif;
+  font-size: 17.5px;
+  line-height: 1.5;
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.entry-date { color: var(--faint); font-size: 14px; margin: 0 0 6px; }
+.entry-text {
+  font-size: 18.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  margin-bottom: 26px;
+}
+
+/* ---- word lookup drawer ---- */
+#lookupOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(28, 26, 51, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  z-index: 40;
+}
+#lookupDrawer {
+  background: var(--paper);
+  border-radius: 18px 18px 0 0;
+  padding: 22px 20px 34px;
+  width: 100%;
+  max-width: 560px;
+}
+#lookupInput { margin-top: 0; background: var(--card); resize: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; }
+}

@@ -1,0 +1,13 @@
+{
+	"name": "mirage-api",
+	"compatibility_date": "2026-06-26",
+	"main": "worker.js",
+	// Create the namespace with: wrangler kv namespace create ENTRIES
+	// then paste the returned id below.
+	"kv_namespaces": [
+		{
+			"binding": "ENTRIES",
+			"id": "PASTE_KV_NAMESPACE_ID_HERE"
+		}
+	]
+}
