@@ -20,7 +20,11 @@ drawer.
 
 - Single `index.html` shell. Views (`gate`, `write`, `reflect`, `list`,
   `detail`) are sections toggled by a `hidden` class — no router.
-- `js/` plain scripts in dependency order: `config` → `app`.
+- `js/` plain scripts in dependency order: `version` → `config` → `app`.
+- `js/version.js` is the **single source of truth for the version** (semver, on
+  `self` so it loads in both the page and the service worker). The entry list
+  renders it; `service-worker.js` derives `CACHE` from it via `importScripts`.
+  Never hard-code a version or cache name anywhere else.
 - The passphrase lives in localStorage (`mirage-app-key`) and is sent as
   `x-app-key` on every request; a 401 clears it and returns to the gate.
 - The in-progress draft persists in localStorage (`mirage-draft`), cleared on
@@ -72,9 +76,12 @@ drawer.
 
 - Australian English everywhere: UI copy, prompts, docs, commit messages.
 - Mobile-first CSS; the primary target is a phone home-screen install.
-- The service worker caches the app shell cache-first. **Bump `CACHE` in
-  `service-worker.js`** (`sh scripts/bump-cache.sh`) on any change to
-  `index.html`, `css/`, or `js/*.js`, or installed clients keep old files.
+- The service worker caches the app shell cache-first. **Bump `MIRAGE_VERSION`
+  in `js/version.js`** (`sh scripts/bump-version.sh`) on any change to
+  `index.html`, `css/`, or `js/*.js`, or installed clients keep old files. The
+  cache name follows automatically; nothing else to touch. The registration
+  passes `updateViaCache: 'none'` so the imported `version.js` is revalidated
+  on update checks — don't drop that.
 - Deploy the Worker with `wrangler deploy` (KV namespace id lives in
   `wrangler.jsonc`).
 

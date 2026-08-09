@@ -228,6 +228,16 @@ textarea:focus, input:focus, .btn:focus-visible { outline: 2px solid var(--viole
   margin-bottom: 26px;
 }
 
+/* Quiet, but --faint on --paper is 4.83:1 — clears WCAG 2.2 AA for body text.
+   Don't lighten it. */
+.version {
+  color: var(--faint);
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  margin: 28px 0 0;
+}
+
 /* ---- word lookup drawer ---- */
 #lookupOverlay {
   position: fixed;

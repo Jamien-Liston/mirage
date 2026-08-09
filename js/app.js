@@ -6,6 +6,7 @@
   'use strict';
 
   var WORKER_URL = window.CONFIG.WORKER_URL;
+  var VERSION = window.MIRAGE_VERSION;
   var KEY_STORAGE = 'mirage-app-key';
   var DRAFT_STORAGE = 'mirage-draft';
 
@@ -325,6 +326,9 @@
 
   // ---- boot ----
   $('writeDate').textContent = fmtDate(new Date().toISOString());
+  // Same constant the service worker builds its cache name from, so what's on
+  // screen is always the shell you're actually running.
+  $('versionTag').textContent = VERSION ? 'Mirage v' + VERSION : '';
   if (localStorage.getItem(KEY_STORAGE)) {
     show('write');
   } else {

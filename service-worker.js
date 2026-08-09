@@ -1,11 +1,17 @@
 // Caches the static app shell so the PWA opens offline. Worker API requests
-// always go to the network (never cached). Bump CACHE on any change to
-// index.html, css/, or js/*.js — installed clients keep the old files otherwise.
-const CACHE = 'mirage-v1';
+// always go to the network (never cached).
+//
+// The cache name derives from MIRAGE_VERSION (js/version.js) — the same
+// constant the UI displays — so bumping that one string is all it takes to
+// retire the old shell. Nothing to bump here.
+importScripts('./js/version.js');
+
+const CACHE = 'mirage-v' + self.MIRAGE_VERSION;
 const SHELL = [
   './',
   './index.html',
   './css/style.css',
+  './js/version.js',
   './js/config.js',
   './js/app.js',
   './manifest.json',

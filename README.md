@@ -48,11 +48,15 @@ conventions and the Worker API.
 
 ## Releasing front-end changes
 
-Bump the service-worker cache on any change to `index.html`, `css/`, or
-`js/*.js`:
+`js/version.js` holds the one version constant (semver). It's what the entry
+list displays *and* what the service worker builds its cache name from, so the
+two can't drift. Bump it on any change to `index.html`, `css/`, or `js/*.js`:
 
 ```sh
-sh scripts/bump-cache.sh
+sh scripts/bump-version.sh          # patch: 0.1.0 -> 0.1.1
+sh scripts/bump-version.sh minor    # 0.1.0 -> 0.2.0
+sh scripts/bump-version.sh 1.2.3    # explicit
 ```
 
-then commit and push — installed clients pick up the new shell on next load.
+or just edit the string in `js/version.js` by hand — same thing. Then commit
+and push; installed clients pick up the new shell on next load.
