@@ -1,16 +1,21 @@
 // Cloudflare Worker — Mirage journal backend (mirrors the Amazing worker pattern).
 // Routes (all require the x-app-key header to match the APP_PASSPHRASE secret):
-//   POST /reflect  { text }                    -> reflection JSON via claude-sonnet-5
-//   POST /words    { reaching }                -> { words: [up to 4 candidates] }
-//   POST /entry    { text, reflection, note }  -> store entry in KV, return { id }
-//   GET  /entries                              -> stored entries, most recent first (metadata only)
-//   GET  /entry?id=…                           -> one stored entry, full record
-//   POST /delete   { id }                      -> remove a stored entry
+//   POST /reflect    { text }                    -> reflection JSON via claude-sonnet-5
+//   POST /words      { reaching }                -> { words: [up to 4 candidates] }
+//   POST /entry      { text, reflection, note }  -> store a new entry, return { id }
+//   POST /entry      { id, text }                -> edit an entry in place, return { id, updated }
+//   POST /reflection { id, reflection }          -> replace an entry's reflection only
+//   GET  /entries                                -> stored entries, most recent first (metadata only)
+//   GET  /entry?id=…                             -> one stored entry, full record
+//   POST /delete     { id }                      -> remove a stored entry
 // Secrets required: ANTHROPIC_API_KEY, APP_PASSPHRASE
 // KV binding required: ENTRIES (single shared namespace — personal app, no accounts)
 
 const MODEL = 'claude-sonnet-5';
 const LIST_LIMIT = 200;
+const ID_PATTERN = /^[0-9a-zA-Z-]+$/;
+// Control characters stripped from free text; newlines and tabs deliberately kept.
+const CONTROL_CHARS = /[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g;
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,6 +46,9 @@ export default {
       }
       if (request.method === 'POST' && url.pathname === '/entry') {
         return await handleSaveEntry(await request.json(), env);
+      }
+      if (request.method === 'POST' && url.pathname === '/reflection') {
+        return await handleSaveReflection(await request.json(), env);
       }
       if (request.method === 'GET' && url.pathname === '/entry') {
         return await handleGetEntry(url.searchParams.get('id'), env);
@@ -175,9 +183,21 @@ async function claudeText(env, prompt, maxTokens) {
 
 // ---- Entries ----
 
+// One route covers both writes. Without an id it creates an entry; with an id
+// it rewrites that entry's text in place, keeping the original key — and so the
+// original created timestamp and the entry's position in the list — while
+// stamping a separate `updated` time. An edit never touches the stored
+// reflection or note: the reflection is only marked as belonging to an earlier
+// draft, and re-running it is a deliberate, separate call to /reflection.
 async function handleSaveEntry(body, env) {
   const text = cleanText(body.text, 20000);
   if (!text) return json({ error: 'Nothing to save.' }, 400);
+
+  const editId = typeof body.id === 'string' && body.id ? body.id : null;
+  if (editId) {
+    if (!ID_PATTERN.test(editId)) return json({ error: 'Bad entry id' }, 400);
+    return await editEntry(editId, text, env);
+  }
 
   const reflection = body.reflection && typeof body.reflection === 'object' ? body.reflection : null;
   const note = typeof body.note === 'string' ? body.note.slice(0, 2000).trim() : '';
@@ -187,9 +207,63 @@ async function handleSaveEntry(body, env) {
   const ts = Date.now();
   const id = `${String(ts).padStart(14, '0')}-${crypto.randomUUID().slice(0, 8)}`;
   const date = new Date(ts).toISOString();
-  const record = { id, date, text, reflection, note };
+  const record = { id, date, updated: null, text, reflection, reflectionStale: false, note };
   await env.ENTRIES.put(`entry:${id}`, JSON.stringify(record), {
-    metadata: { date, preview: text.replace(/\s+/g, ' ').slice(0, 140) },
+    metadata: { date, updated: null, preview: preview(text) },
+  });
+
+  return json({ id });
+}
+
+async function editEntry(id, text, env) {
+  const prev = await readEntry(id, env);
+  if (!prev) return json({ error: 'Entry not found' }, 404);
+
+  const textChanged = prev.text !== text;
+  const reflection = prev.reflection ?? null;
+  // A reflection carried across an edit describes the text as it was before.
+  const reflectionStale = reflection ? textChanged || prev.reflectionStale === true : false;
+
+  const updated = new Date().toISOString();
+  const record = {
+    id: prev.id ?? id,
+    date: prev.date, // original created timestamp, never rewritten
+    updated,
+    text,
+    reflection,
+    reflectionStale,
+    note: prev.note ?? '',
+  };
+  await env.ENTRIES.put(`entry:${id}`, JSON.stringify(record), {
+    metadata: { date: prev.date, updated, preview: preview(text) },
+  });
+
+  return json({ id: record.id, updated });
+}
+
+// Replace an entry's reflection without touching its text, created date or
+// `updated` time — re-reading an entry isn't editing it. The grounding note is
+// left alone: it's the writer's own words, not the model's.
+async function handleSaveReflection(body, env) {
+  const id = typeof body.id === 'string' ? body.id : '';
+  if (!id || !ID_PATTERN.test(id)) return json({ error: 'Bad entry id' }, 400);
+  if (!body.reflection || typeof body.reflection !== 'object') {
+    return json({ error: 'No reflection to save.' }, 400);
+  }
+
+  const prev = await readEntry(id, env);
+  if (!prev) return json({ error: 'Entry not found' }, 404);
+
+  const record = Object.assign({}, prev, {
+    reflection: body.reflection,
+    reflectionStale: false,
+  });
+  await env.ENTRIES.put(`entry:${id}`, JSON.stringify(record), {
+    metadata: {
+      date: prev.date,
+      updated: prev.updated ?? null,
+      preview: preview(prev.text || ''),
+    },
   });
 
   return json({ id });
@@ -212,6 +286,7 @@ async function handleEntries(env) {
       return {
         id: k.name.slice('entry:'.length),
         date: meta.date ?? null,
+        updated: meta.updated ?? null,
         preview: meta.preview ?? '',
       };
     });
@@ -220,7 +295,7 @@ async function handleEntries(env) {
 }
 
 async function handleGetEntry(id, env) {
-  if (!id || !/^[0-9a-zA-Z-]+$/.test(id)) return json({ error: 'Bad entry id' }, 400);
+  if (!id || !ID_PATTERN.test(id)) return json({ error: 'Bad entry id' }, 400);
   const raw = await env.ENTRIES.get(`entry:${id}`);
   if (!raw) return json({ error: 'Entry not found' }, 404);
   return new Response(raw, {
@@ -230,19 +305,32 @@ async function handleGetEntry(id, env) {
 
 async function handleDelete(body, env) {
   const id = typeof body.id === 'string' ? body.id : '';
-  if (!id || !/^[0-9a-zA-Z-]+$/.test(id)) return json({ error: 'Bad entry id' }, 400);
+  if (!id || !ID_PATTERN.test(id)) return json({ error: 'Bad entry id' }, 400);
   await env.ENTRIES.delete(`entry:${id}`);
   return json({ id, deleted: true });
+}
+
+async function readEntry(id, env) {
+  const raw = await env.ENTRIES.get(`entry:${id}`);
+  if (!raw) return null;
+  try {
+    const record = JSON.parse(raw);
+    return record && typeof record === 'object' ? record : null;
+  } catch {
+    console.error('Stored entry is not JSON', id);
+    return null;
+  }
+}
+
+function preview(text) {
+  return text.replace(/\s+/g, ' ').slice(0, 140);
 }
 
 // Cap and sanitise free-text input before it reaches a prompt or KV:
 // strip control characters (keep newlines and tabs), hard length limit.
 function cleanText(raw, maxLen) {
   if (typeof raw !== 'string') return null;
-  const cleaned = raw
-    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, ' ')
-    .trim()
-    .slice(0, maxLen);
+  const cleaned = raw.replace(CONTROL_CHARS, ' ').trim().slice(0, maxLen);
   return cleaned.length >= 2 ? cleaned : null;
 }
 

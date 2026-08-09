@@ -9,6 +9,9 @@
   var VERSION = window.MIRAGE_VERSION;
   var KEY_STORAGE = 'mirage-app-key';
   var DRAFT_STORAGE = 'mirage-draft';
+  // An in-progress edit is parked under its own key so it never overwrites the
+  // unsaved new-entry draft — cancelling an edit hands that draft straight back.
+  var EDIT_STORAGE = 'mirage-edit';
 
   // ---- element handles ----
   var $ = function (id) { return document.getElementById(id); };
@@ -17,6 +20,8 @@
   // ---- state ----
   var currentReflection = null;
   var currentEntry = null;
+  // { id, date, original } while the write view is editing a saved entry.
+  var editing = null;
 
   // ---- time-of-day horizon ----
   function horizonStops(hour) {
@@ -71,6 +76,11 @@
   function fmtShort(iso) {
     return new Date(iso).toLocaleDateString('en-AU', {
       day: 'numeric', month: 'short', year: 'numeric',
+    });
+  }
+  function fmtDateTime(iso) {
+    return new Date(iso).toLocaleString('en-AU', {
+      day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
     });
   }
 
@@ -155,17 +165,104 @@
   // ---- write ----
   var draftEl = $('draft');
   draftEl.value = localStorage.getItem(DRAFT_STORAGE) || '';
-  function syncDraftButtons() {
-    $('finishBtn').disabled = !draftEl.value.trim();
+
+  // The write view wears two hats: a new entry (finish -> reflect -> save) or
+  // an in-place edit of a saved entry (save changes / cancel, no reflect step,
+  // since re-reflecting on an edit is opt-in from the detail view).
+  function applyWriteMode() {
+    var isEdit = !!editing;
+    $('writeDate').textContent = isEdit
+      ? 'Editing your entry from ' + fmtDate(editing.date)
+      : fmtDate(new Date().toISOString());
+    $('finishBtn').classList.toggle('hidden', isEdit);
+    $('saveEditBtn').classList.toggle('hidden', !isEdit);
+    $('cancelEditBtn').classList.toggle('hidden', !isEdit);
+    draftEl.placeholder = isEdit ? 'Say it again, closer to how it was.' : "Start anywhere. Don't polish.";
   }
+
+  function syncDraftButtons() {
+    var empty = !draftEl.value.trim();
+    $('finishBtn').disabled = empty;
+    $('saveEditBtn').disabled = empty;
+  }
+
+  function persistDraft() {
+    if (editing) {
+      localStorage.setItem(EDIT_STORAGE, JSON.stringify({
+        id: editing.id,
+        date: editing.date,
+        original: editing.original,
+        text: draftEl.value,
+      }));
+    } else {
+      localStorage.setItem(DRAFT_STORAGE, draftEl.value);
+    }
+  }
+
   draftEl.addEventListener('input', function () {
-    localStorage.setItem(DRAFT_STORAGE, draftEl.value);
+    persistDraft();
     syncDraftButtons();
   });
-  syncDraftButtons();
 
   $('navWrite').addEventListener('click', function () { show('write'); });
   $('navList').addEventListener('click', function () { openList(); });
+
+  // ---- editing a saved entry ----
+  function enterEdit(entry) {
+    editing = { id: entry.id, date: entry.date, original: entry.text || '' };
+    draftEl.value = entry.text || '';
+    persistDraft();
+    applyWriteMode();
+    syncDraftButtons();
+    show('write');
+    draftEl.focus();
+  }
+
+  // Leave edit mode without writing anything: the saved entry is untouched and
+  // the parked new-entry draft comes back exactly as it was.
+  function exitEdit() {
+    editing = null;
+    localStorage.removeItem(EDIT_STORAGE);
+    draftEl.value = localStorage.getItem(DRAFT_STORAGE) || '';
+    applyWriteMode();
+    syncDraftButtons();
+  }
+
+  $('cancelEditBtn').addEventListener('click', function () {
+    if (!editing) return;
+    var id = editing.id;
+    var changed = draftEl.value.trim() !== editing.original.trim();
+    if (changed && !confirm('Discard your changes to this entry?')) return;
+    exitEdit();
+    openDetail(id);
+  });
+
+  $('saveEditBtn').addEventListener('click', function () {
+    if (!editing) return;
+    var text = draftEl.value.trim();
+    if (!text) return;
+    var id = editing.id;
+    // Nothing actually changed — don't write, so the entry doesn't pick up a
+    // misleading "edited" marker.
+    if (text === editing.original.trim()) {
+      exitEdit();
+      openDetail(id);
+      return;
+    }
+    var btn = $('saveEditBtn');
+    btn.disabled = true;
+    // Only the id and text go up: the Worker keeps the created date, note and
+    // reflection, and marks the reflection as belonging to an earlier draft.
+    api('/entry', { method: 'POST', body: JSON.stringify({ id: id, text: text }) })
+      .then(function () {
+        exitEdit();
+        openDetail(id);
+      })
+      .catch(function () {
+        alert("Couldn't save your changes — check your connection and try again.");
+      })
+      .then(function () { btn.disabled = !draftEl.value.trim(); });
+  });
 
   // ---- reflect ----
   function finishWriting() {
@@ -236,7 +333,10 @@
           var card = el('div', 'card clickable');
           card.setAttribute('role', 'button');
           card.tabIndex = 0;
-          card.appendChild(el('p', 'entry-date', entry.date ? fmtShort(entry.date) : ''));
+          var dateRow = el('p', 'entry-date');
+          dateRow.appendChild(el('span', null, entry.date ? fmtShort(entry.date) : ''));
+          if (entry.updated) dateRow.appendChild(el('span', 'edited-flag', 'edited'));
+          card.appendChild(dateRow);
           card.appendChild(el('p', 'entry-preview', entry.preview));
           function open() { openDetail(entry.id); }
           card.addEventListener('click', open);
@@ -255,18 +355,27 @@
   $('firstEntryBtn').addEventListener('click', function () { show('write'); });
 
   // ---- detail ----
+  function renderDetail(entry) {
+    $('detailDate').textContent = fmtDate(entry.date);
+    $('detailEdited').textContent = entry.updated ? 'Edited ' + fmtDateTime(entry.updated) : '';
+    $('detailEdited').classList.toggle('hidden', !entry.updated);
+    $('detailText').textContent = entry.text;
+    $('detailStale').classList.toggle('hidden', !(entry.reflection && entry.reflectionStale));
+    renderReflection($('detailReflection'), entry.reflection, { note: entry.note });
+  }
+
   function openDetail(id) {
     show('detail');
     currentEntry = null;
     $('detailDate').textContent = '';
+    $('detailEdited').classList.add('hidden');
     $('detailText').textContent = 'Loading…';
+    $('detailStale').classList.add('hidden');
     $('detailReflection').textContent = '';
     api('/entry?id=' + encodeURIComponent(id), {})
       .then(function (entry) {
         currentEntry = entry;
-        $('detailDate').textContent = fmtDate(entry.date);
-        $('detailText').textContent = entry.text;
-        renderReflection($('detailReflection'), entry.reflection, { note: entry.note });
+        renderDetail(entry);
       })
       .catch(function () {
         $('detailText').textContent = "Couldn't load this entry.";
@@ -274,13 +383,51 @@
   }
   $('backBtn').addEventListener('click', openList);
 
+  $('editBtn').addEventListener('click', function () {
+    if (!currentEntry) return;
+    enterEdit(currentEntry);
+  });
+
   $('deleteBtn').addEventListener('click', function () {
     if (!currentEntry) return;
     if (!confirm('Delete this entry? This cannot be undone.')) return;
-    api('/delete', { method: 'POST', body: JSON.stringify({ id: currentEntry.id }) })
-      .then(openList)
+    var id = currentEntry.id;
+    api('/delete', { method: 'POST', body: JSON.stringify({ id: id }) })
+      .then(function () {
+        // Don't leave a parked edit pointing at an entry that's gone.
+        if (editing && editing.id === id) exitEdit();
+        openList();
+      })
       .catch(function () {
         alert("Couldn't delete the entry — try again.");
+      });
+  });
+
+  // Re-run the reflection on the entry as it stands now. Only ever from this
+  // button — saving an edit never triggers it.
+  $('rerunBtn').addEventListener('click', function () {
+    if (!currentEntry) return;
+    var entry = currentEntry;
+    var btn = $('rerunBtn');
+    btn.disabled = true;
+    btn.textContent = 'Reading it back…';
+    api('/reflect', { method: 'POST', body: JSON.stringify({ text: entry.text }) })
+      .then(function (data) {
+        return api('/reflection', {
+          method: 'POST',
+          body: JSON.stringify({ id: entry.id, reflection: data.reflection }),
+        }).then(function () {
+          entry.reflection = data.reflection;
+          entry.reflectionStale = false;
+          if (currentEntry === entry) renderDetail(entry);
+        });
+      })
+      .catch(function () {
+        alert("Couldn't run the reflection — try again.");
+      })
+      .then(function () {
+        btn.disabled = false;
+        btn.textContent = 'Reflect on it again';
       });
   });
 
@@ -325,7 +472,21 @@
   });
 
   // ---- boot ----
-  $('writeDate').textContent = fmtDate(new Date().toISOString());
+  // An edit interrupted by a reload picks up where it left off; the entry it
+  // came from is still untouched on the server until Save changes.
+  var parkedEdit = null;
+  try {
+    parkedEdit = JSON.parse(localStorage.getItem(EDIT_STORAGE) || 'null');
+  } catch (e) {
+    parkedEdit = null;
+  }
+  if (parkedEdit && parkedEdit.id && parkedEdit.date) {
+    editing = { id: parkedEdit.id, date: parkedEdit.date, original: parkedEdit.original || '' };
+    draftEl.value = parkedEdit.text || '';
+  }
+  applyWriteMode();
+  syncDraftButtons();
+
   // Same constant the service worker builds its cache name from, so what's on
   // screen is always the shell you're actually running.
   $('versionTag').textContent = VERSION ? 'Mirage v' + VERSION : '';

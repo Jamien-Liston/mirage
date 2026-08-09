@@ -3,7 +3,9 @@
 A private journaling PWA. Write freely; afterwards a reflection layer (Claude)
 reads the entry back — what went well, what could've been better, a gentle
 grounding check on self-criticism, and words you leaned on — plus a mid-write
-"reaching for a word?" drawer.
+"reaching for a word?" drawer. Saved entries stay editable: an edit rewrites
+the entry in place, keeps the date it was written, and notes when it was last
+changed.
 
 Static front-end (GitHub Pages, no build step) + one Cloudflare Worker with a
 KV namespace for storage and as the Anthropic proxy. See `CLAUDE.md` for

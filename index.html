@@ -34,14 +34,18 @@
       <button id="gateGo" class="btn primary">Open</button>
     </section>
 
-    <!-- Write -->
+    <!-- Write (doubles as the editor for a saved entry — see js/app.js) -->
     <section id="write" class="hidden">
       <p id="writeDate" class="faint small"></p>
       <textarea id="draft" placeholder="Start anywhere. Don't polish."></textarea>
       <div id="writeBar">
         <div class="bar-inner">
           <button id="lookupOpen" class="btn quiet">Reaching for a word?</button>
-          <button id="finishBtn" class="btn primary" disabled>Finish writing</button>
+          <div class="bar-actions">
+            <button id="cancelEditBtn" class="btn quiet hidden">Cancel</button>
+            <button id="saveEditBtn" class="btn primary hidden">Save changes</button>
+            <button id="finishBtn" class="btn primary" disabled>Finish writing</button>
+          </div>
         </div>
       </div>
     </section>
@@ -81,9 +85,19 @@
     <section id="detail" class="hidden">
       <button id="backBtn" class="btn quiet back">&larr; All entries</button>
       <p id="detailDate" class="faint small"></p>
+      <p id="detailEdited" class="faint edited-line hidden"></p>
       <p id="detailText" class="entry-text serif"></p>
+      <!-- Shown only when the stored reflection predates the current text.
+           Re-running it is always a deliberate tap, never automatic. -->
+      <div id="detailStale" class="card stale hidden">
+        <p class="faint">This reflection was written from an earlier draft of this entry.</p>
+        <button id="rerunBtn" class="btn ghost">Reflect on it again</button>
+      </div>
       <div id="detailReflection"></div>
-      <button id="deleteBtn" class="btn quiet danger">Delete entry</button>
+      <div class="row detail-actions">
+        <button id="editBtn" class="btn ghost">Edit entry</button>
+        <button id="deleteBtn" class="btn quiet danger">Delete entry</button>
+      </div>
     </section>
   </main>
 

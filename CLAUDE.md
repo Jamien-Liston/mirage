@@ -19,7 +19,9 @@ drawer.
 ## Architecture
 
 - Single `index.html` shell. Views (`gate`, `write`, `reflect`, `list`,
-  `detail`) are sections toggled by a `hidden` class — no router.
+  `detail`) are sections toggled by a `hidden` class — no router. The `write`
+  view doubles as the editor for a saved entry (Save changes / Cancel instead
+  of Finish writing, no reflect step).
 - `js/` plain scripts in dependency order: `version` → `config` → `app`.
 - `js/version.js` is the **single source of truth for the version** (semver, on
   `self` so it loads in both the page and the service worker). The entry list
@@ -28,7 +30,9 @@ drawer.
 - The passphrase lives in localStorage (`mirage-app-key`) and is sent as
   `x-app-key` on every request; a 401 clears it and returns to the gate.
 - The in-progress draft persists in localStorage (`mirage-draft`), cleared on
-  save.
+  save. An in-progress *edit* persists separately under `mirage-edit`
+  (`{id, date, original, text}`) so it never overwrites that draft and survives
+  a reload; cancelling clears it and hands the draft back untouched.
 - The horizon gradient shifts with the local hour (dawn/day/dusk/night).
 
 ## Worker API (all routes require `x-app-key`)
@@ -37,14 +41,24 @@ drawer.
 |---|---|
 | `POST /reflect {text}` | sanitised entry → reflection prompt → `claude-sonnet-5`, returns `{reflection}` JSON (wentWell / couldBeBetter / criticism / vocab) |
 | `POST /words {reaching}` | word-lookup prompt → `{words: [≤4 candidates]}` |
-| `POST /entry {text, reflection, note}` | store entry in KV, return `{id}` |
+| `POST /entry {text, reflection, note}` | store a new entry in KV, return `{id}` |
+| `POST /entry {id, text}` | edit that entry in place, return `{id, updated}` |
+| `POST /reflection {id, reflection}` | replace an entry's reflection only |
 | `GET /entries` | stored entries, most recent first (KV key metadata only — no body reads) |
 | `GET /entry?id=…` | one stored entry, full record |
 | `POST /delete {id}` | remove a stored entry |
 
-- KV layout: `entry:<zero-padded-ts>-<rand>` → `{id, date, text, reflection,
-  note}` with `{date, preview}` as key metadata. Timestamp-first keys make
-  KV's lexicographic list order chronological.
+- KV layout: `entry:<zero-padded-ts>-<rand>` → `{id, date, updated, text,
+  reflection, reflectionStale, note}` with `{date, updated, preview}` as key
+  metadata. Timestamp-first keys make KV's lexicographic list order
+  chronological.
+- Editing rewrites the same key, so `date` (created) and the entry's place in
+  the list never move; `updated` is stamped separately and drives the "edited"
+  marker. An edit keeps the stored reflection and note untouched but sets
+  `reflectionStale` when the text changed — the detail view then labels the
+  reflection and offers a re-run. Re-running goes through `/reflection`, which
+  leaves `updated` alone: re-reading an entry isn't editing it. Nothing
+  re-reflects automatically.
 - Sonnet 5 rules baked in: no `thinking` param (omitting it runs adaptive
   thinking by default), no sampling params (`temperature` etc. 400), no
   assistant prefill, and check `stop_reason === "refusal"` before reading

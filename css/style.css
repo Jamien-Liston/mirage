@@ -104,7 +104,7 @@ main {
 .btn.primary { background: var(--violet); color: #FFFFFF; }
 .btn.ghost { color: var(--violet); border: 1px solid var(--line); }
 .btn.quiet { color: var(--faint); padding: 8px 12px; }
-.btn.danger { color: var(--amber); margin-top: 20px; }
+.btn.danger { color: var(--amber); }
 .btn.back { margin-left: -12px; }
 textarea:focus, input:focus, .btn:focus-visible { outline: 2px solid var(--violet); outline-offset: 2px; }
 
@@ -127,6 +127,9 @@ textarea:focus, input:focus, .btn:focus-visible { outline: 2px solid var(--viole
   margin: 4px 0 10px;
 }
 .card.clickable { cursor: pointer; }
+/* Reflection written before the entry was edited — a note, not an alarm. */
+.card.stale { border-style: dashed; }
+.card.stale p { margin: 0 0 12px; font-size: 15.5px; }
 
 /* ---- write view ---- */
 #draft {
@@ -153,6 +156,18 @@ textarea:focus, input:focus, .btn:focus-visible { outline: 2px solid var(--viole
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 8px;
+  /* Editing adds a third button; on a narrow phone the actions drop to their
+     own row rather than squashing the lookup button off the edge. */
+  flex-wrap: wrap;
+  row-gap: 4px;
+}
+/* Cancel + Save changes while editing; Finish writing otherwise. */
+#writeBar .bar-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
 }
 
 /* ---- gate ---- */
@@ -221,12 +236,17 @@ textarea:focus, input:focus, .btn:focus-visible { outline: 2px solid var(--viole
   overflow: hidden;
 }
 .entry-date { color: var(--faint); font-size: 14px; margin: 0 0 6px; }
+/* "edited" beside the date in the list — same weight as the date itself. */
+.edited-flag { font-style: italic; }
+.edited-flag::before { content: '·'; margin: 0 6px; font-style: normal; }
+.edited-line { font-size: 14px; font-style: italic; margin: -10px 0 14px; }
 .entry-text {
   font-size: 18.5px;
   line-height: 1.65;
   white-space: pre-wrap;
   margin-bottom: 26px;
 }
+.detail-actions { margin-top: 26px; align-items: center; }
 
 /* Quiet, but --faint on --paper is 4.83:1 — clears WCAG 2.2 AA for body text.
    Don't lighten it. */
