@@ -33,6 +33,16 @@ drawer.
   save. An in-progress *edit* persists separately under `mirage-edit`
   (`{id, date, original, text}`) so it never overwrites that draft and survives
   a reload; cancelling clears it and hands the draft back untouched.
+- The entry list is drawn from an in-memory model (`entries` in `js/app.js`),
+  never straight from a response. `renderList()` is a pure projection of it;
+  `loadList()` is the only thing that refills it from `GET /entries`. Mutations
+  the app makes patch the model directly (`dropListEntry` / `patchListEntry`),
+  always *after* the Worker confirms — never optimistically, so a failed call
+  leaves the list showing what's actually stored. Don't re-read `/entries`
+  after a write: it's built from KV key metadata, the slowest surface to
+  reflect one, and it will hand back a pre-mutation list. Saving a *new* entry
+  is the deliberate exception (the server assigns its date and preview) and
+  doubles as the resync point.
 - The horizon gradient shifts with the local hour (dawn/day/dusk/night).
 
 ## Worker API (all routes require `x-app-key`)

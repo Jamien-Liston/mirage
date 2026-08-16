@@ -8,4 +8,4 @@
 //
 // Bumping this string is the whole release ritual: it changes the version in
 // the UI and invalidates the cached app shell in one move.
-self.MIRAGE_VERSION = '0.2.0';
+self.MIRAGE_VERSION = '0.3.0';

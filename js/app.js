@@ -22,6 +22,16 @@
   var currentEntry = null;
   // { id, date, original } while the write view is editing a saved entry.
   var editing = null;
+  // The app's own model of the entry list: [{ id, date, updated, preview }],
+  // most recent first. The list view draws from this and nothing else. A
+  // mutation we made ourselves patches it directly, so the screen reflects what
+  // we know to be true rather than whatever the next /entries read says — that
+  // read is built from KV key metadata, the laggiest surface in the store, so
+  // re-reading after a write can hand back a pre-mutation view of the list.
+  // null means "no trustworthy model" (never loaded, or the last load failed).
+  var entries = null;
+  // Guards overlapping loads: only the newest one is allowed to land.
+  var listSeq = 0;
 
   // ---- time-of-day horizon ----
   function horizonStops(hour) {
@@ -82,6 +92,17 @@
     return new Date(iso).toLocaleString('en-AU', {
       day: 'numeric', month: 'short', year: 'numeric', hour: 'numeric', minute: '2-digit',
     });
+  }
+
+  // Mirrors cleanText + preview in worker.js, in that order: control characters
+  // to spaces, trim, collapse whitespace, cap at 140. Deriving it the same way
+  // here is what lets an edited card be patched without re-reading the list.
+  function previewOf(text) {
+    return String(text)
+      .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, ' ')
+      .trim()
+      .replace(/\s+/g, ' ')
+      .slice(0, 140);
   }
 
   // ---- DOM builders ----
@@ -254,7 +275,15 @@
     // Only the id and text go up: the Worker keeps the created date, note and
     // reflection, and marks the reflection as belonging to an earlier draft.
     api('/entry', { method: 'POST', body: JSON.stringify({ id: id, text: text }) })
-      .then(function () {
+      .then(function (data) {
+        // Confirmed write, so the list model can be patched from what the
+        // Worker itself stored: its `updated` stamp, and the preview derived
+        // exactly as it derives one. On failure this never runs and the list
+        // keeps showing the entry as it still is on the server.
+        patchListEntry(id, {
+          updated: (data && data.updated) || new Date().toISOString(),
+          preview: previewOf(text),
+        });
         exitEdit();
         openDetail(id);
       })
@@ -306,6 +335,10 @@
         localStorage.removeItem(DRAFT_STORAGE);
         syncDraftButtons();
         currentReflection = null;
+        // A new entry's created date and preview are the server's to assign,
+        // so this is the one path that rebuilds the model from /entries — which
+        // doubles as the app's resync point with anything changed elsewhere.
+        entries = null;
         openList();
       })
       .catch(function () {
@@ -317,41 +350,84 @@
   $('saveNoReflBtn').addEventListener('click', saveEntry);
 
   // ---- list ----
-  function openList() {
-    show('list');
+  function entryCard(entry) {
+    var card = el('div', 'card clickable');
+    card.setAttribute('role', 'button');
+    card.tabIndex = 0;
+    var dateRow = el('p', 'entry-date');
+    dateRow.appendChild(el('span', null, entry.date ? fmtShort(entry.date) : ''));
+    if (entry.updated) dateRow.appendChild(el('span', 'edited-flag', 'edited'));
+    card.appendChild(dateRow);
+    card.appendChild(el('p', 'entry-preview', entry.preview || ''));
+    function open() { openDetail(entry.id); }
+    card.addEventListener('click', open);
+    card.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') open();
+    });
+    return card;
+  }
+
+  // The list view is a pure projection of `entries` — never of a response.
+  // Redraw after touching the model and the screen follows.
+  function renderList() {
+    var body = $('listBody');
+    body.textContent = '';
+    $('listBusy').classList.add('hidden');
+    $('listEmpty').classList.toggle('hidden', !entries || entries.length > 0);
+    if (!entries) return;
+    entries.forEach(function (entry) { body.appendChild(entryCard(entry)); });
+  }
+
+  // Refill the model from the server. `listSeq` means a slow earlier load can't
+  // land on top of a newer one, or append a second set of cards on top of it.
+  function loadList() {
+    var seq = ++listSeq;
     $('listBody').textContent = '';
     $('listEmpty').classList.add('hidden');
     $('listBusy').classList.remove('hidden');
     api('/entries', {})
       .then(function (data) {
-        $('listBusy').classList.add('hidden');
-        if (!data.entries.length) {
-          $('listEmpty').classList.remove('hidden');
-          return;
-        }
-        data.entries.forEach(function (entry) {
-          var card = el('div', 'card clickable');
-          card.setAttribute('role', 'button');
-          card.tabIndex = 0;
-          var dateRow = el('p', 'entry-date');
-          dateRow.appendChild(el('span', null, entry.date ? fmtShort(entry.date) : ''));
-          if (entry.updated) dateRow.appendChild(el('span', 'edited-flag', 'edited'));
-          card.appendChild(dateRow);
-          card.appendChild(el('p', 'entry-preview', entry.preview));
-          function open() { openDetail(entry.id); }
-          card.addEventListener('click', open);
-          card.addEventListener('keydown', function (e) {
-            if (e.key === 'Enter') open();
-          });
-          $('listBody').appendChild(card);
-        });
+        if (seq !== listSeq) return;
+        entries = (data && data.entries) || [];
+        renderList();
       })
       .catch(function () {
+        if (seq !== listSeq) return;
+        // No trustworthy model, so don't keep one: the next visit loads again
+        // rather than drawing a half-truth.
+        entries = null;
         $('listBusy').classList.add('hidden');
-        var msg = el('p', 'error', "Couldn't load entries — try again.");
-        $('listBody').appendChild(msg);
+        $('listEmpty').classList.add('hidden');
+        $('listBody').textContent = '';
+        $('listBody').appendChild(el('p', 'error', "Couldn't load entries — try again."));
       });
   }
+
+  // Straight from the model whenever we have one. Every mutation the app makes
+  // patches it, so it's already right — and re-reading /entries here is exactly
+  // what used to put a pre-mutation list back on screen.
+  function openList() {
+    show('list');
+    if (entries) renderList();
+    else loadList();
+  }
+
+  // Both mutators run only after the Worker confirms the write, never
+  // optimistically: if the call fails the model is untouched, so the list
+  // still shows what is actually stored. A no-op when there's no model —
+  // the next openList() will load a fresh one anyway.
+  function dropListEntry(id) {
+    if (!entries) return;
+    entries = entries.filter(function (e) { return e.id !== id; });
+  }
+
+  function patchListEntry(id, fields) {
+    if (!entries) return;
+    entries = entries.map(function (e) {
+      return e.id === id ? Object.assign({}, e, fields) : e;
+    });
+  }
+
   $('firstEntryBtn').addEventListener('click', function () { show('write'); });
 
   // ---- detail ----
@@ -392,19 +468,25 @@
     if (!currentEntry) return;
     if (!confirm('Delete this entry? This cannot be undone.')) return;
     var id = currentEntry.id;
+    var btn = $('deleteBtn');
+    btn.disabled = true;
     api('/delete', { method: 'POST', body: JSON.stringify({ id: id }) })
       .then(function () {
         // Don't leave a parked edit pointing at an entry that's gone.
         if (editing && editing.id === id) exitEdit();
+        dropListEntry(id);
+        currentEntry = null;
         openList();
       })
       .catch(function () {
         alert("Couldn't delete the entry — try again.");
-      });
+      })
+      .then(function () { btn.disabled = false; });
   });
 
   // Re-run the reflection on the entry as it stands now. Only ever from this
-  // button — saving an edit never triggers it.
+  // button — saving an edit never triggers it. Nothing the list shows changes
+  // (same text, same `updated`), so the list model is deliberately left alone.
   $('rerunBtn').addEventListener('click', function () {
     if (!currentEntry) return;
     var entry = currentEntry;
